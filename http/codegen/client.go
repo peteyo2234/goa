@@ -188,7 +188,7 @@ func clientEncodeDecode(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File 
 			Source: requestBuilderT,
 			Data:   e,
 		})
-		if e.RequestEncoder != "" {
+		if e.Payload.Ref != "" {
 			sections = append(sections, &codegen.SectionTemplate{
 				Name:   "request-encoder",
 				Source: requestEncoderT,
@@ -329,12 +329,8 @@ func New{{ .ClientStruct }}(
 const endpointInitT = `{{ printf "%s returns an endpoint that makes HTTP requests to the %s service %s server." .EndpointInit .ServiceName .Method.Name | comment }}
 func (c *{{ .ClientStruct }}) {{ .EndpointInit }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.VarName }} {{ .MultipartRequestEncoder.FuncName }}{{ end }}) goa.Endpoint {
 	var (
-		{{- if and .ClientStream .RequestEncoder }}
+		{{- if .Payload.Ref }}
 		encodeRequest  = {{ .RequestEncoder }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.InitName }}({{ .MultipartRequestEncoder.VarName }}){{ else }}c.encoder{{ end }})
-		{{- else }}
-			{{- if .RequestEncoder }}
-		encodeRequest  = {{ .RequestEncoder }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.InitName }}({{ .MultipartRequestEncoder.VarName }}){{ else }}c.encoder{{ end }})
-			{{- end }}
 		{{- end }}
 		decodeResponse = {{ .ResponseDecoder }}(c.decoder, c.RestoreResponseBody)
 	)
@@ -343,7 +339,7 @@ func (c *{{ .ClientStruct }}) {{ .EndpointInit }}({{ if .MultipartRequestEncoder
 		if err != nil {
 			return nil, err
 		}
-	{{- if .RequestEncoder }}
+	{{- if .Payload.Ref }}
 		err = encodeRequest(req, v)
 		if err != nil {
 			return nil, err
