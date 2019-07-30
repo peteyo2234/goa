@@ -111,12 +111,16 @@ func IsCompatible(a, b expr.DataType, actx, bctx string) error {
 			return fmt.Errorf("%s is a hash but %s type is %s", actx, bctx, b.Name())
 		}
 	default:
-		if ut, ok := a.(expr.UserType); ok {
-			return IsCompatible(ut.Attribute().Type, b, actx, bctx)
-		} else if ut, ok := b.(expr.UserType); ok {
-			return IsCompatible(a, ut.Attribute().Type, actx, bctx)
-		}
-		if a.Kind() != b.Kind() {
+		aUT, isAUT := a.(expr.UserType)
+		bUT, isBUT := b.(expr.UserType)
+		switch {
+		case isAUT && isBUT:
+			return IsCompatible(aUT.Attribute().Type, bUT.Attribute().Type, actx, bctx)
+		case isAUT:
+			return IsCompatible(aUT.Attribute().Type, b, actx, bctx)
+		case isBUT:
+			return IsCompatible(a, bUT.Attribute().Type, actx, bctx)
+		case a.Kind() != b.Kind():
 			return fmt.Errorf("%s is a %s but %s type is %s", actx, a.Name(), bctx, b.Name())
 		}
 	}

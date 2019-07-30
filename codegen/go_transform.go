@@ -79,8 +79,9 @@ func transformAttribute(source, target *expr.AttributeExpr, sourceVar, targetVar
 		if newVar {
 			assign = ":="
 		}
-		if _, ok := target.Type.(expr.UserType); ok {
-			// Primitive user type, these are used for error results
+		_, srcUT := source.Type.(expr.UserType)
+		_, tgtUT := target.Type.(expr.UserType)
+		if srcUT || tgtUT {
 			cast := ta.TargetCtx.Scope.Ref(target, ta.TargetCtx.Pkg)
 			return fmt.Sprintf("%s %s %s(%s)\n", targetVar, assign, cast, sourceVar), nil
 		}
@@ -95,29 +96,62 @@ func transformObject(source, target *expr.AttributeExpr, sourceVar, targetVar st
 	var (
 		initCode     string
 		postInitCode string
+		err          error
 	)
 	{
 		// walk through primitives first to initialize the struct
 		walkMatches(source, target, func(srcMatt, tgtMatt *expr.MappedAttributeExpr, srcc, tgtc *expr.AttributeExpr, n string) {
-			// primitive user types use transform functions.
-			if _, ok := srcc.Type.(expr.UserType); ok {
-				return
-			}
-			if _, ok := tgtc.Type.(expr.UserType); ok {
-				return
-			}
 			if !expr.IsPrimitive(srcc.Type) {
+				return
+			}
+			if err = IsCompatible(srcc.Type, tgtc.Type, sourceVar, targetVar); err != nil {
 				return
 			}
 			var (
 				deref string
 
-				srcPtr   = ta.SourceCtx.IsPrimitivePointer(n, srcMatt.AttributeExpr)
-				tgtPtr   = ta.TargetCtx.IsPrimitivePointer(n, tgtMatt.AttributeExpr)
-				srcField = sourceVar + "." + GoifyAtt(srcc, srcMatt.ElemName(n), true)
-				tgtField = GoifyAtt(tgtc, tgtMatt.ElemName(n), true)
+				srcPtr     = ta.SourceCtx.IsPrimitivePointer(n, srcMatt.AttributeExpr)
+				tgtPtr     = ta.TargetCtx.IsPrimitivePointer(n, tgtMatt.AttributeExpr)
+				srcField   = sourceVar + "." + GoifyAtt(srcc, srcMatt.ElemName(n), true)
+				tgtField   = GoifyAtt(tgtc, tgtMatt.ElemName(n), true)
+				_, isSrcUT = srcc.Type.(expr.UserType)
+				_, isTgtUT = tgtc.Type.(expr.UserType)
 			)
 			{
+				if isSrcUT || isTgtUT {
+					// source or target or both is primitive user type
+					var (
+						code string
+						cast string
+
+						checkNil = srcPtr && !srcMatt.IsRequired(n)
+					)
+					{
+						deref := ""
+						if srcPtr {
+							deref = "*"
+						}
+						cast = fmt.Sprintf("%s(%s%s)", ta.TargetCtx.Scope.Ref(tgtc, ta.TargetCtx.Pkg), deref, srcField)
+						if checkNil {
+							code += fmt.Sprintf("if %s != nil {\n", srcField)
+						}
+						if tgtPtr {
+							tmp := Goify(tgtMatt.ElemName(n), false)
+							code += fmt.Sprintf("%s := %s\n%s.%s = &%s\n", tmp, cast, targetVar, tgtField, tmp)
+						} else if checkNil {
+							code += fmt.Sprintf("%s.%s = %s", targetVar, tgtField, cast)
+						}
+						if checkNil {
+							code += "}\n"
+						}
+					}
+					if !checkNil {
+						initCode += fmt.Sprintf("\n%s: %s,", tgtField, cast)
+					} else {
+						postInitCode += code
+					}
+					return
+				}
 				switch {
 				case srcPtr && !tgtPtr:
 					if !srcMatt.IsRequired(n) {
@@ -135,6 +169,9 @@ func transformObject(source, target *expr.AttributeExpr, sourceVar, targetVar st
 			initCode += "\n"
 		}
 	}
+	if err != nil {
+		return "", err
+	}
 
 	buffer := &bytes.Buffer{}
 	deref := "&"
@@ -147,7 +184,6 @@ func transformObject(source, target *expr.AttributeExpr, sourceVar, targetVar st
 
 	// iterate through attributes to initialize rest of the struct fields and
 	// handle default values
-	var err error
 	walkMatches(source, target, func(srcMatt, tgtMatt *expr.MappedAttributeExpr, srcc, tgtc *expr.AttributeExpr, n string) {
 		if err = IsCompatible(srcc.Type, tgtc.Type, sourceVar, targetVar); err != nil {
 			return
@@ -167,12 +203,7 @@ func transformObject(source, target *expr.AttributeExpr, sourceVar, targetVar st
 			case expr.IsMap(srcc.Type):
 				code, err = transformMapElem(expr.AsMap(srcc.Type), expr.AsMap(tgtc.Type), srcVar, tgtVar, false, ta)
 			case ok:
-				// primitive user types transform function generate non pointer values
-				// but may be assigned to pointer fields.
-				if expr.IsPrimitive(srcc.Type) && ta.SourceCtx.IsPrimitivePointer(n, srcMatt.AttributeExpr) {
-					code = fmt.Sprintf("tmp := %s(*%s)\n", transformHelperName(srcc, tgtc, ta), srcVar)
-					code += fmt.Sprintf("%s = &tmp\n", tgtVar)
-				} else {
+				if !expr.IsPrimitive(srcc.Type) {
 					code = fmt.Sprintf("%s = %s(%s)\n", tgtVar, transformHelperName(srcc, tgtc, ta), srcVar)
 				}
 			case expr.IsObject(srcc.Type):
@@ -203,7 +234,7 @@ func transformObject(source, target *expr.AttributeExpr, sourceVar, targetVar st
 		// Default value handling. We need to handle default values if the target
 		// type uses default values (i.e. attributes with default values are
 		// non-pointers) and has a default value set.
-		if tdef := tgtc.DefaultValue; tdef != nil && ta.TargetCtx.UseDefault {
+		if tdef := tgtMatt.GetDefault(n); tdef != nil && ta.TargetCtx.UseDefault {
 			if (ta.SourceCtx.IsPrimitivePointer(n, srcMatt.AttributeExpr) || !expr.IsPrimitive(srcc.Type)) && !srcMatt.IsRequired(n) {
 				code += fmt.Sprintf("if %s == nil {\n\t", srcVar)
 				if ta.TargetCtx.IsPrimitivePointer(n, tgtMatt.AttributeExpr) && expr.IsPrimitive(tgtc.Type) {
@@ -261,6 +292,7 @@ func transformArrayElem(source, target *expr.Array, sourceVar, targetVar string,
 			"NewVar":         newVar,
 			"TransformAttrs": ta,
 			"LoopVar":        string(105 + strings.Count(targetVar, "[")),
+			"IsPrimitive":    expr.IsPrimitive(st),
 		}
 		var buf bytes.Buffer
 		if err := transformGoArrayElemT.Execute(&buf, data); err != nil {
@@ -323,6 +355,7 @@ func transformMapElem(source, target *expr.Map, sourceVar, targetVar string, new
 			"NewVar":         newVar,
 			"TransformAttrs": ta,
 			"LoopVar":        "",
+			"IsPrimitive":    expr.IsPrimitive(source.ElemType.Type),
 		}
 		if depth := MapDepth(target); depth > 0 {
 			data["LoopVar"] = string(97 + depth)
@@ -351,25 +384,28 @@ func transformMapElem(source, target *expr.Map, sourceVar, targetVar string, new
 //
 func transformAttributeHelpers(source, target *expr.AttributeExpr, ta *TransformAttrs, seen map[string]*TransformFunctionData) (helpers []*TransformFunctionData, err error) {
 	// Do not generate a transform function for the top most user type.
+	var other []*TransformFunctionData
 	switch {
 	case expr.IsArray(source.Type):
-		helpers, err = transformAttributeHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, ta, seen)
+		if other, err = transformAttributeHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, ta, seen); err == nil {
+			helpers = append(helpers, other...)
+		}
 	case expr.IsMap(source.Type):
 		sm, tm := expr.AsMap(source.Type), expr.AsMap(target.Type)
-		helpers, err = transformAttributeHelpers(sm.ElemType, tm.ElemType, ta, seen)
-		if err == nil {
-			var other []*TransformFunctionData
-			other, err = collectHelpers(sm.KeyType, tm.KeyType, true, ta, seen)
+		if other, err = transformAttributeHelpers(sm.ElemType, tm.ElemType, ta, seen); err == nil {
 			helpers = append(helpers, other...)
+			if other, err = collectHelpers(sm.KeyType, tm.KeyType, true, ta, seen); err == nil {
+				helpers = append(helpers, other...)
+			}
 		}
 	case expr.IsObject(source.Type):
 		walkMatches(source, target, func(srcMatt, _ *expr.MappedAttributeExpr, srcc, tgtc *expr.AttributeExpr, n string) {
 			if err != nil {
 				return
 			}
-			var hs []*TransformFunctionData
-			hs, err = collectHelpers(srcc, tgtc, srcMatt.IsRequired(n), ta, seen)
-			helpers = append(helpers, hs...)
+			if other, err = collectHelpers(srcc, tgtc, srcMatt.IsRequired(n), ta, seen); err == nil {
+				helpers = append(helpers, other...)
+			}
 		})
 	}
 	return
@@ -385,31 +421,34 @@ func collectHelpers(source, target *expr.AttributeExpr, req bool, ta *TransformA
 	if _, ok := seen[name]; ok {
 		return
 	}
-	if _, ok := source.Type.(expr.UserType); ok {
+	if _, ok := source.Type.(expr.UserType); ok && !expr.IsPrimitive(source.Type) {
 		var h *TransformFunctionData
 		if h, err = generateHelper(source, target, req, ta, seen); h != nil {
 			helpers = append(helpers, h)
 		}
 	}
+	var other []*TransformFunctionData
 	switch {
 	case expr.IsArray(source.Type):
-		helpers, err = collectHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, req, ta, seen)
+		if other, err = collectHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, req, ta, seen); err == nil {
+			helpers = append(helpers, other...)
+		}
 	case expr.IsMap(source.Type):
 		sm, tm := expr.AsMap(source.Type), expr.AsMap(target.Type)
-		helpers, err = collectHelpers(sm.ElemType, tm.ElemType, req, ta, seen)
-		if err == nil {
-			var other []*TransformFunctionData
-			other, err = collectHelpers(sm.KeyType, tm.KeyType, req, ta, seen)
+		if other, err = collectHelpers(sm.ElemType, tm.ElemType, req, ta, seen); err == nil {
 			helpers = append(helpers, other...)
+			if other, err = collectHelpers(sm.KeyType, tm.KeyType, req, ta, seen); err == nil {
+				helpers = append(helpers, other...)
+			}
 		}
 	case expr.IsObject(source.Type):
 		walkMatches(source, target, func(srcMatt, _ *expr.MappedAttributeExpr, srcc, tgtc *expr.AttributeExpr, n string) {
 			if err != nil {
 				return
 			}
-			var hs []*TransformFunctionData
-			hs, err = collectHelpers(srcc, tgtc, srcMatt.IsRequired(n), ta, seen)
-			helpers = append(helpers, hs...)
+			if other, err = collectHelpers(srcc, tgtc, srcMatt.IsRequired(n), ta, seen); err == nil {
+				helpers = append(helpers, other...)
+			}
 		})
 	}
 	return
@@ -485,7 +524,11 @@ for {{ .LoopVar }}, val := range {{ .SourceVar }} {
 
 	transformGoArrayElemTmpl = `{{ .TargetVar }} {{ if .NewVar }}:={{ else }}={{ end }} make([]{{ .ElemTypeRef }}, len({{ .SourceVar }}))
 for {{ .LoopVar }}, val := range {{ .SourceVar }} {
-  {{ .TargetVar }}[{{ .LoopVar }}] = {{ transformHelperName .SourceElem .TargetElem .TransformAttrs }}(val)
+{{- if .IsPrimitive }}
+	{{ .TargetVar }}[{{ .LoopVar }}] = {{ .ElemTypeRef }}(val)
+{{- else }}
+	{{ .TargetVar }}[{{ .LoopVar }}] = {{ transformHelperName .SourceElem .TargetElem .TransformAttrs }}(val)
+{{- end }}
 }
 `
 
@@ -500,7 +543,11 @@ for key, val := range {{ .SourceVar }} {
 	transformGoMapElemTmpl = `{{ .TargetVar }} {{ if .NewVar }}:={{ else }}={{ end }} make(map[{{ .KeyTypeRef }}]{{ .ElemTypeRef }}, len({{ .SourceVar }}))
 for key, val := range {{ .SourceVar }} {
   {{ transformAttribute .SourceKey .TargetKey "key" "tk" true .TransformAttrs -}}
-  {{ .TargetVar }}[tk] = {{ transformHelperName .SourceElem .TargetElem .TransformAttrs }}(val)
+{{ if .IsPrimitive -}}
+	{{ .TargetVar }}[tk] = {{ .ElemTypeRef }}(val)
+{{ else -}}
+	{{ .TargetVar }}[tk] = {{ transformHelperName .SourceElem .TargetElem .TransformAttrs -}}(val)
+{{ end -}}
 }
 `
 )

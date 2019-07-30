@@ -41,6 +41,10 @@ func TestGoTransform(t *testing.T) {
 		resultType = root.UserType("ResultType")
 		rtCol      = root.UserType("ResultTypeCollection")
 
+		simpleAlias    = root.UserType("SimpleAlias")
+		nestedMapAlias = root.UserType("NestedMapAlias")
+		arrayMapAlias  = root.UserType("ArrayMapAlias")
+
 		// attribute contexts used in test cases
 		defaultCtx    = NewAttributeContext(false, false, true, "", scope)
 		defaultCtxPkg = NewAttributeContext(false, false, true, "mypkg", scope)
@@ -97,6 +101,14 @@ func TestGoTransform(t *testing.T) {
 			{"composite-to-custom-field-pkg", composite, customField, defaultCtx, defaultCtxPkg, srcTgtUseDefaultCompositeToCustomFieldPkgCode},
 			{"result-type-to-result-type", resultType, resultType, defaultCtx, defaultCtx, srcTgtUseDefaultResultTypeToResultTypeCode},
 			{"result-type-collection-to-result-type-collection", rtCol, rtCol, defaultCtx, defaultCtx, srcTgtUseDefaultRTColToRTColCode},
+
+			// alias
+			{"simple-alias-to-simple", simpleAlias, simple, defaultCtx, defaultCtx, srcTgtUseDefaultSimpleAliasToSimpleCode},
+			{"simple-to-simple-alias", simple, simpleAlias, defaultCtx, defaultCtx, srcTgtUseDefaultSimpleToSimpleAliasCode},
+			{"nested-map-alias-to-nested-map", nestedMapAlias, nestedMap, defaultCtx, defaultCtx, srcTgtUseDefaultNestedMapAliasToNestedMapCode},
+			{"nested-map-to-nested-map-alias", nestedMap, nestedMapAlias, defaultCtx, defaultCtx, srcTgtUseDefaultNestedMapToNestedMapAliasCode},
+			{"array-map-alias-to-array-map", arrayMapAlias, arrayMap, defaultCtx, defaultCtx, srcTgtUseDefaultArrayMapAliasToArrayMapCode},
+			{"array-map-to-array-map-alias", arrayMap, arrayMapAlias, defaultCtx, defaultCtx, srcTgtUseDefaultArrayMapToArrayMapAliasCode},
 		},
 
 		// source type uses pointers for all fields, target type uses default
@@ -122,6 +134,10 @@ func TestGoTransform(t *testing.T) {
 
 			// others
 			{"custom-field-to-composite", customField, composite, pointerCtx, defaultCtx, srcAllPtrsTgtUseDefaultCustomFieldToCompositeCode},
+
+			// alias
+			{"simple-alias-to-simple", simpleAlias, simple, pointerCtx, defaultCtx, srcAllPtrsTgtUseDefaultSimpleAliasToSimpleCode},
+			{"simple-to-simple-alias", simple, simpleAlias, pointerCtx, defaultCtx, srcAllPtrsTgtUseDefaultSimpleToSimpleAliasCode},
 		},
 
 		// source type uses default, target type uses pointers for all fields
@@ -657,6 +673,104 @@ const (
 }
 `
 
+	srcTgtUseDefaultSimpleAliasToSimpleCode = `func transform() {
+	target := &Simple{
+		RequiredString: string(source.RequiredString),
+		DefaultBool:    bool(source.DefaultBool),
+	}
+	if source.Integer != nil {
+		integer := int(*source.Integer)
+		target.Integer = &integer
+	}
+}
+`
+
+	srcTgtUseDefaultSimpleToSimpleAliasCode = `func transform() {
+	target := &SimpleAlias{
+		RequiredString: StringAlias(source.RequiredString),
+		DefaultBool:    BoolAlias(source.DefaultBool),
+	}
+	if source.Integer != nil {
+		integer := IntAlias(*source.Integer)
+		target.Integer = &integer
+	}
+}
+`
+
+	srcTgtUseDefaultNestedMapAliasToNestedMapCode = `func transform() {
+	target := &NestedMap{}
+	if source.NestedMap != nil {
+		target.NestedMap = make(map[float64]map[int]map[float64]uint64, len(source.NestedMap))
+		for key, val := range source.NestedMap {
+			tk := float64(key)
+			tvc := make(map[int]map[float64]uint64, len(val))
+			for key, val := range val {
+				tk := int(key)
+				tvb := make(map[float64]uint64, len(val))
+				for key, val := range val {
+					tk := float64(key)
+					tv := val
+					tvb[tk] = tv
+				}
+				tvc[tk] = tvb
+			}
+			target.NestedMap[tk] = tvc
+		}
+	}
+}
+`
+
+	srcTgtUseDefaultNestedMapToNestedMapAliasCode = `func transform() {
+	target := &NestedMapAlias{}
+	if source.NestedMap != nil {
+		target.NestedMap = make(map[Float64Alias]map[IntAlias]map[Float64Alias]uint64, len(source.NestedMap))
+		for key, val := range source.NestedMap {
+			tk := Float64Alias(key)
+			tvc := make(map[IntAlias]map[Float64Alias]uint64, len(val))
+			for key, val := range val {
+				tk := IntAlias(key)
+				tvb := make(map[Float64Alias]uint64, len(val))
+				for key, val := range val {
+					tk := Float64Alias(key)
+					tv := val
+					tvb[tk] = tv
+				}
+				tvc[tk] = tvb
+			}
+			target.NestedMap[tk] = tvc
+		}
+	}
+}
+`
+
+	srcTgtUseDefaultArrayMapAliasToArrayMapCode = `func transform() {
+	target := &ArrayMap{}
+	if source.ArrayMap != nil {
+		target.ArrayMap = make(map[uint32][]float32, len(source.ArrayMap))
+		for key, val := range source.ArrayMap {
+			tk := key
+			tv := make([]float32, len(val))
+			for i, val := range val {
+				tv[i] = float32(val)
+			}
+			target.ArrayMap[tk] = tv
+		}
+	}
+}
+`
+
+	srcTgtUseDefaultArrayMapToArrayMapAliasCode = `func transform() {
+	target := &ArrayMapAlias{}
+	if source.ArrayMap != nil {
+		target.ArrayMap = make(map[uint32]Float32ArrayAlias, len(source.ArrayMap))
+		for key, val := range source.ArrayMap {
+			tk := key
+			target.ArrayMap[tk] = transformFloat32ToFloat32ArrayAlias(val)
+		}
+	}
+}
+`
+
 	srcAllPtrsTgtUseDefaultSimpleToSimpleCode = `func transform() {
 	target := &Simple{
 		RequiredString: *source.RequiredString,
@@ -853,6 +967,40 @@ const (
 	target.Array = make([]string, len(source.MyArray))
 	for i, val := range source.MyArray {
 		target.Array[i] = val
+	}
+}
+`
+
+	srcAllPtrsTgtUseDefaultSimpleAliasToSimpleCode = `func transform() {
+	target := &Simple{
+		RequiredString: string(*source.RequiredString),
+	}
+	if source.DefaultBool != nil {
+		target.DefaultBool = bool(*source.DefaultBool)
+	}
+	if source.Integer != nil {
+		integer := int(*source.Integer)
+		target.Integer = &integer
+	}
+	if source.DefaultBool == nil {
+		target.DefaultBool = true
+	}
+}
+`
+
+	srcAllPtrsTgtUseDefaultSimpleToSimpleAliasCode = `func transform() {
+	target := &SimpleAlias{
+		RequiredString: StringAlias(*source.RequiredString),
+	}
+	if source.DefaultBool != nil {
+		target.DefaultBool = BoolAlias(*source.DefaultBool)
+	}
+	if source.Integer != nil {
+		integer := IntAlias(*source.Integer)
+		target.Integer = &integer
+	}
+	if source.DefaultBool == nil {
+		target.DefaultBool = true
 	}
 }
 `
