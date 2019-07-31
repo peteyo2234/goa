@@ -765,7 +765,11 @@ const (
 		target.ArrayMap = make(map[uint32]Float32ArrayAlias, len(source.ArrayMap))
 		for key, val := range source.ArrayMap {
 			tk := key
-			target.ArrayMap[tk] = transformFloat32ToFloat32ArrayAlias(val)
+			tv := make([]Float32Alias, len(val))
+			for i, val := range val {
+				tv[i] = Float32Alias(val)
+			}
+			target.ArrayMap[tk] = tv
 		}
 	}
 }
