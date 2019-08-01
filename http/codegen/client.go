@@ -474,6 +474,13 @@ func {{ .RequestEncoder }}(encoder func(*http.Request) goahttp.Encoder) func(*ht
 			{{- if .FieldPointer }}
 		}
 			{{- end }}
+		{{- else }}
+			{{- if eq .Type.Name "string" }}
+				values.Add("{{ .Name }}", p)
+			{{- else }}
+				{{ template "type_conversion" (typeConversionData .Type .FieldType "pStr" "p") }}
+				values.Add("{{ .Name }}", pStr)
+			{{- end }}
 		{{- end }}
 	{{- end }}
 	{{- if .Payload.Request.QueryParams }}

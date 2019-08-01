@@ -1217,6 +1217,7 @@ func EncodeMethodQueryPrimitiveStringValidateRequest(encoder func(*http.Request)
 			return goahttp.ErrInvalidType("ServiceQueryPrimitiveStringValidate", "MethodQueryPrimitiveStringValidate", "string", v)
 		}
 		values := req.URL.Query()
+		values.Add("q", p)
 		req.URL.RawQuery = values.Encode()
 		return nil
 	}
@@ -1233,6 +1234,8 @@ func EncodeMethodQueryPrimitiveBoolValidateRequest(encoder func(*http.Request) g
 			return goahttp.ErrInvalidType("ServiceQueryPrimitiveBoolValidate", "MethodQueryPrimitiveBoolValidate", "bool", v)
 		}
 		values := req.URL.Query()
+		pStr := strconv.FormatBool(p)
+		values.Add("q", pStr)
 		req.URL.RawQuery = values.Encode()
 		return nil
 	}
