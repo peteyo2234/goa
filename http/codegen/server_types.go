@@ -1,7 +1,9 @@
 package codegen
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 
 	"goa.design/goa/v3/codegen"
 	"goa.design/goa/v3/expr"
@@ -169,21 +171,26 @@ func serverType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 		})
 	}
 
+	fm := map[string]interface{}{
+		"fieldCode": fieldCode,
+	}
 	for _, adata := range data.Endpoints {
 		// request to method payload
 		if init := adata.Payload.Request.PayloadInit; init != nil {
 			sections = append(sections, &codegen.SectionTemplate{
-				Name:   "server-payload-init",
-				Source: serverTypeInitT,
-				Data:   init,
+				Name:    "server-payload-init",
+				Source:  serverTypeInitT,
+				Data:    init,
+				FuncMap: fm,
 			})
 		}
 		if adata.ServerStream != nil && adata.ServerStream.Payload != nil {
 			if init := adata.ServerStream.Payload.Init; init != nil {
 				sections = append(sections, &codegen.SectionTemplate{
-					Name:   "server-payload-init",
-					Source: serverTypeInitT,
-					Data:   init,
+					Name:    "server-payload-init",
+					Source:  serverTypeInitT,
+					Data:    init,
+					FuncMap: fm,
 				})
 			}
 		}
@@ -201,6 +208,53 @@ func serverType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 	return &codegen.File{Path: path, SectionTemplates: sections}
 }
 
+// fieldCode generates code to initialize the data structures fields
+// from the given args. It is used only in templates.
+func fieldCode(args []*InitArgData, tgtVar, tgtPkg string) string {
+	var code string
+	scope := codegen.NewNameScope()
+	for _, arg := range args {
+		if arg.FieldName == "" {
+			continue
+		}
+		_, isut := arg.FieldType.(expr.UserType)
+		switch {
+		case expr.Equal(arg.Type, arg.FieldType):
+			// no need to call transform for same type
+			deref := ""
+			if !arg.Pointer && arg.FieldPointer && expr.IsPrimitive(arg.FieldType) {
+				deref = "&"
+			}
+			code += fmt.Sprintf("%s.%s = %s%s\n", tgtVar, arg.FieldName, deref, arg.Name)
+		case expr.IsPrimitive(arg.FieldType) && isut:
+			t := scope.GoFullTypeRef(&expr.AttributeExpr{Type: arg.FieldType}, tgtPkg)
+			cast := fmt.Sprintf("%s(%s)", t, arg.Name)
+			if arg.Pointer {
+				cast = fmt.Sprintf("%s(*%s)", t, arg.Name)
+			}
+			if arg.FieldPointer {
+				code += fmt.Sprintf("tmp%s := %s\n%s.%s = &tmp%s\n", arg.Name, cast, tgtVar, arg.FieldName, arg.Name)
+			} else {
+				code += fmt.Sprintf("%s.%s = %s\n", tgtVar, arg.FieldName, cast)
+			}
+		default:
+			srcctx := codegen.NewAttributeContext(arg.Pointer, false, true, "", scope)
+			tgtctx := codegen.NewAttributeContext(arg.FieldPointer, false, true, tgtPkg, scope)
+			c, h, err := codegen.GoTransformToVar(
+				&expr.AttributeExpr{Type: arg.Type}, &expr.AttributeExpr{Type: arg.FieldType},
+				arg.Name, fmt.Sprintf("%s.%s", tgtVar, arg.FieldName), srcctx, tgtctx, "", false)
+			if err != nil {
+				panic(err) // bug
+			}
+			if len(h) > 0 {
+				panic("expected 0 transform helpers but got at least 1") // bug
+			}
+			code += c + "\n"
+		}
+	}
+	return strings.Trim(code, "\n")
+}
+
 // input: TypeData
 const typeDeclT = `{{ comment .Description }}
 type {{ .VarName }} {{ .Def }}
@@ -209,32 +263,28 @@ type {{ .VarName }} {{ .Def }}
 // input: InitData
 const serverTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ServerArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
-	{{- if .ServerCode }}
-		{{ .ServerCode }}
-		{{- if .ReturnTypeAttribute }}
+{{- if .ServerCode }}
+	{{ .ServerCode }}
+	{{- if .ReturnTypeAttribute }}
 		res := &{{ .ReturnTypeName }}{
 			{{ .ReturnTypeAttribute }}: v,
 		}
+	{{- end }}
+	{{- if .ReturnIsStruct }}
+		{{- if .ReturnTypeAttribute }}
+			{{ fieldCode .ServerArgs "res" .ReturnTypePkg }}
+		{{- else }}
+			{{ fieldCode .ServerArgs "v" .ReturnTypePkg }}
 		{{- end }}
-		{{- if .ReturnIsStruct }}
-			{{- range .ServerArgs }}
-				{{- if .FieldName }}
-			{{ if $.ReturnTypeAttribute }}res{{ else }}v{{ end }}.{{ .FieldName }} = {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }}
-				{{- end }}
-			{{- end }}
-		{{- end }}
-		return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
-	{{- else }}
-		{{- if .ReturnIsStruct }}
-			return &{{ .ReturnTypeName }}{
-			{{- range .ServerArgs }}
-				{{- if .FieldName }}
-				{{ .FieldName }}: {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }},
-				{{- end }}
-			{{- end }}
-			}
-		{{- end }}
-	{{ end -}}
+	{{- end }}
+	return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
+{{- else }}
+	{{- if .ReturnIsStruct }}
+		v := &{{ .ReturnTypeName }}{}
+		{{ fieldCode .ServerArgs "v" .ReturnTypePkg }}
+		return v
+	{{- end }}
+{{ end -}}
 }
 `
 

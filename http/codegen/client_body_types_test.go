@@ -111,9 +111,7 @@ const BodyPrimitiveArrayUserValidateInitCode = `// NewPayloadTypeRequestBody bui
 func NewPayloadTypeRequestBody(p []*servicebodyprimitivearrayuservalidate.PayloadType) []*PayloadTypeRequestBody {
 	body := make([]*PayloadTypeRequestBody, len(p))
 	for i, val := range p {
-		body[i] = &PayloadTypeRequestBody{
-			A: val.A,
-		}
+		body[i] = marshalServicebodyprimitivearrayuservalidatePayloadTypeToPayloadTypeRequestBody(val)
 	}
 	return body
 }

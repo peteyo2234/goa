@@ -39,13 +39,21 @@ func init() {
 // prefix is the transformation helper function prefix
 //
 func GoTransform(source, target *expr.AttributeExpr, sourceVar, targetVar string, sourceCtx, targetCtx *AttributeContext, prefix string) (string, []*TransformFunctionData, error) {
+	return GoTransformToVar(source, target, sourceVar, targetVar, sourceCtx, targetCtx, prefix, true)
+}
+
+// GoTransformToVar is similar to GoTransform except that it initializes the
+// target data structure to the variable in targetVar. If newVar is set to
+// false the target variable is initialized with "=" operator, otherwise ":="
+// operator is used. See GoTypeTransform for more information.
+func GoTransformToVar(source, target *expr.AttributeExpr, sourceVar, targetVar string, sourceCtx, targetCtx *AttributeContext, prefix string, newVar bool) (string, []*TransformFunctionData, error) {
 	ta := &TransformAttrs{
 		SourceCtx: sourceCtx,
 		TargetCtx: targetCtx,
 		Prefix:    prefix,
 	}
 
-	code, err := transformAttribute(source, target, sourceVar, targetVar, true, ta)
+	code, err := transformAttribute(source, target, sourceVar, targetVar, newVar, ta)
 	if err != nil {
 		return "", nil, err
 	}

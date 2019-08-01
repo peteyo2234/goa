@@ -165,14 +165,18 @@ func clientType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 		})
 	}
 
+	fm := map[string]interface{}{
+		"fieldCode": fieldCode,
+	}
 	for _, adata := range data.Endpoints {
 		// response to method result (client)
 		for _, resp := range adata.Result.Responses {
 			if init := resp.ResultInit; init != nil {
 				sections = append(sections, &codegen.SectionTemplate{
-					Name:   "client-result-init",
-					Source: clientTypeInitT,
-					Data:   init,
+					Name:    "client-result-init",
+					Source:  clientTypeInitT,
+					Data:    init,
+					FuncMap: fm,
 				})
 			}
 		}
@@ -182,9 +186,10 @@ func clientType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 			for _, herr := range gerr.Errors {
 				if init := herr.Response.ResultInit; init != nil {
 					sections = append(sections, &codegen.SectionTemplate{
-						Name:   "client-error-result-init",
-						Source: clientTypeInitT,
-						Data:   init,
+						Name:    "client-error-result-init",
+						Source:  clientTypeInitT,
+						Data:    init,
+						FuncMap: fm,
 					})
 				}
 			}
@@ -214,31 +219,27 @@ func {{ .Name }}({{ range .ClientArgs }}{{ .Name }} {{.TypeRef }}, {{ end }}) {{
 // input: InitData
 const clientTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ClientArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
-	{{- if .ClientCode }}
-		{{ .ClientCode }}
-		{{- if .ReturnTypeAttribute }}
+{{- if .ClientCode }}
+	{{ .ClientCode }}
+	{{- if .ReturnTypeAttribute }}
 		res := &{{ .ReturnTypeName }}{
 			{{ .ReturnTypeAttribute }}: {{ if .ReturnIsPrimitivePointer }}&{{ end }}v,
 		}
+	{{- end }}
+	{{- if .ReturnIsStruct }}
+		{{- if .ReturnTypeAttribute }}
+			{{ fieldCode .ClientArgs "res" .ReturnTypePkg }}
+		{{- else }}
+			{{ fieldCode .ClientArgs "v" .ReturnTypePkg }}
 		{{- end }}
-		{{- if .ReturnIsStruct }}
-			{{- range .ClientArgs }}
-				{{- if .FieldName }}
-			{{ if $.ReturnTypeAttribute }}res{{ else }}v{{ end }}.{{ .FieldName }} = {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }}
-				{{- end }}
-			{{- end }}
-		{{- end }}
-		return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
-	{{- else }}
-		{{- if .ReturnIsStruct }}
-			return &{{ .ReturnTypeName }}{
-			{{- range .ClientArgs }}
-				{{- if .FieldName }}
-				{{ .FieldName }}: {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }},
-				{{- end }}
-			{{- end }}
-			}
-		{{- end }}
-	{{ end -}}
+	{{- end }}
+	return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
+{{- else }}
+	{{- if .ReturnIsStruct }}
+		v := &{{ .ReturnTypeName }}{}
+		{{ fieldCode .ClientArgs "v" .ReturnTypePkg }}
+		return v
+	{{- end }}
+{{ end -}}
 }
 `

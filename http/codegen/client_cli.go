@@ -202,6 +202,8 @@ func makeFlags(e *EndpointData, args []*InitArgData) ([]*cli.FlagData, *cli.Buil
 			Pointer:      arg.Pointer,
 			FieldName:    arg.FieldName,
 			FieldPointer: arg.FieldPointer,
+			FieldType:    arg.FieldType,
+			Type:         arg.Type,
 		}
 
 		f := cli.NewFlagData(e.ServiceName, e.Method.Name, arg.Name, arg.TypeName, arg.Description, arg.Required, arg.Example)
@@ -232,6 +234,7 @@ func makeFlags(e *EndpointData, args []*InitArgData) ([]*cli.FlagData, *cli.Buil
 		ReturnTypeAttribute: e.Payload.Request.PayloadInit.ReturnTypeAttribute,
 		ReturnIsStruct:      e.Payload.Request.PayloadInit.ReturnIsStruct,
 		ReturnTypeName:      e.Payload.Request.PayloadInit.ReturnTypeName,
+		ReturnTypePkg:       e.Payload.Request.PayloadInit.ReturnTypePkg,
 		Args:                pInitArgs,
 	}
 

@@ -132,6 +132,8 @@ type (
 		ReturnIsStruct bool
 		// ReturnTypeName is the fully-qualified name of the payload.
 		ReturnTypeName string
+		// ReturnTypePkg is the package name where the payload is present.
+		ReturnTypePkg string
 		// Args is the list of arguments for the constructor.
 		Args []*PayloadInitArgData
 	}
@@ -149,6 +151,10 @@ type (
 		// FieldPointer if true indicates that the field in the payload is a
 		// pointer.
 		FieldPointer bool
+		// FieldType is the type of the field in the payload.
+		FieldType expr.DataType
+		// Type is the argument type.
+		Type expr.DataType
 	}
 )
 
@@ -301,6 +307,9 @@ func PayloadBuilderSection(buildFunction *BuildFunctionData) *codegen.SectionTem
 		Name:   "cli-build-payload",
 		Source: buildPayloadT,
 		Data:   buildFunction,
+		FuncMap: map[string]interface{}{
+			"fieldCode": fieldCode,
+		},
 	}
 }
 
@@ -540,6 +549,53 @@ func generateExample(sub *SubcommandData, svc string) {
 	sub.Example = ex
 }
 
+// fieldCode generates code to initialize the data structures fields
+// from the given args. It is used only in templates.
+func fieldCode(args []*PayloadInitArgData, tgtVar, tgtPkg string) string {
+	var code string
+	scope := codegen.NewNameScope()
+	for _, arg := range args {
+		if arg.FieldName == "" {
+			continue
+		}
+		_, isut := arg.FieldType.(expr.UserType)
+		switch {
+		case expr.Equal(arg.Type, arg.FieldType):
+			// no need to call transform for same type
+			deref := ""
+			if !arg.Pointer && arg.FieldPointer && expr.IsPrimitive(arg.FieldType) {
+				deref = "&"
+			}
+			code += fmt.Sprintf("%s.%s = %s%s\n", tgtVar, arg.FieldName, deref, arg.Name)
+		case expr.IsPrimitive(arg.FieldType) && isut:
+			t := scope.GoFullTypeRef(&expr.AttributeExpr{Type: arg.FieldType}, tgtPkg)
+			cast := fmt.Sprintf("%s(%s)", t, arg.Name)
+			if arg.Pointer {
+				cast = fmt.Sprintf("%s(*%s)", t, arg.Name)
+			}
+			if arg.FieldPointer {
+				code += fmt.Sprintf("tmp%s := %s\n%s.%s = &tmp%s\n", arg.Name, cast, tgtVar, arg.FieldName, arg.Name)
+			} else {
+				code += fmt.Sprintf("%s.%s = %s\n", tgtVar, arg.FieldName, cast)
+			}
+		default:
+			srcctx := codegen.NewAttributeContext(arg.Pointer, false, true, "", scope)
+			tgtctx := codegen.NewAttributeContext(arg.FieldPointer, false, true, tgtPkg, scope)
+			c, h, err := codegen.GoTransformToVar(
+				&expr.AttributeExpr{Type: arg.Type}, &expr.AttributeExpr{Type: arg.FieldType},
+				arg.Name, fmt.Sprintf("%s.%s", tgtVar, arg.FieldName), srcctx, tgtctx, "", false)
+			if err != nil {
+				panic(err) // bug
+			}
+			if len(h) > 0 {
+				panic("expected 0 transform helpers but got at least 1") // bug
+			}
+			code += c + "\n"
+		}
+	}
+	return strings.Trim(code, "\n")
+}
+
 // input: []string
 const usageT = `// UsageCommands returns the set of commands and sub-commands using the format
 //
@@ -672,49 +728,38 @@ Example:
 // input: buildFunctionData
 const buildPayloadT = `{{ printf "%s builds the payload for the %s %s endpoint from CLI flags." .Name .ServiceName .MethodName | comment }}
 func {{ .Name }}({{ range .FormalParams }}{{ . }} string, {{ end }}) ({{ .ResultType }}, error) {
-	{{- if .CheckErr }}
+{{- if .CheckErr }}
 	var err error
+{{- end }}
+{{- range .Fields }}
+	{{- if .VarName }}
+		var {{ .VarName }} {{ .TypeRef }}
+		{
+			{{ .Init }}
+		}
 	{{- end }}
-	{{- range .Fields }}
-		{{- if .VarName }}
-	var {{ .VarName }} {{ .TypeRef }}
-	{
-		{{ .Init }}
-	}
+{{- end }}
+{{- with .PayloadInit }}
+	{{- if .Code }}
+		{{ .Code }}
+		{{- if .ReturnTypeAttribute }}
+			res := &{{ .ReturnTypeName }}{
+				{{ .ReturnTypeAttribute }}: v,
+			}
 		{{- end }}
-	{{- end }}
-	{{- with .PayloadInit }}
-
-		{{- if .Code }}
-	{{ .Code }}
+		{{- if .ReturnIsStruct }}
 			{{- if .ReturnTypeAttribute }}
-	res := &{{ .ReturnTypeName }}{
-		{{ .ReturnTypeAttribute }}: v,
-	}
-			{{- end }}
-			{{- if .ReturnIsStruct }}
-				{{- range .Args }}
-					{{- if .FieldName }}
-	{{ if $.PayloadInit.ReturnTypeAttribute }}res{{ else }}v{{ end }}.{{ .FieldName }} = {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }}
-				{{- end }}
+				{{ fieldCode .Args "res" .ReturnTypePkg }}
+			{{- else }}
+				{{ fieldCode .Args "v" .ReturnTypePkg }}
 			{{- end }}
 		{{- end }}
-	return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}, nil
-
-		{{- else }}
-			{{- if .ReturnIsStruct }}
-	payload := &{{ .ReturnTypeName }}{
-				{{- range .Args }}
-					{{- if .FieldName }}
-		{{ .FieldName }}: {{ if and (not .Pointer) .FieldPointer }}&{{ end }}{{ .Name }},
-					{{- end }}
-				{{- end }}
-	}
-	return payload, nil
-			{{-  end }}
-
-		{{- end }}
-
+		return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}, nil
+	{{- else }}
+		payload := &{{ .ReturnTypeName }}{}
+		{{ fieldCode .Args "payload" .ReturnTypePkg }}
+		return payload, nil
 	{{- end }}
+{{- end }}
 }
 `

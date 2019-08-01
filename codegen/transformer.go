@@ -89,8 +89,13 @@ func NewAttributeContext(pointer, reqIgnore, useDefault bool, pkg string, scope 
 		IgnoreRequired: reqIgnore,
 		UseDefault:     useDefault,
 		Pkg:            pkg,
-		Scope:          &AttributeScope{scope: scope},
+		Scope:          NewAttributeScope(scope),
 	}
+}
+
+// NewAttributeScope initializes an attribute scope.
+func NewAttributeScope(scope *NameScope) *AttributeScope {
+	return &AttributeScope{scope: scope}
 }
 
 // IsCompatible returns an error if a and b are not both objects, both arrays,
@@ -218,6 +223,7 @@ func (a *AttributeContext) Dup() *AttributeContext {
 		Pointer:        a.Pointer,
 		IgnoreRequired: a.IgnoreRequired,
 		UseDefault:     a.UseDefault,
+		Pkg:            a.Pkg,
 		Scope:          a.Scope,
 	}
 }
