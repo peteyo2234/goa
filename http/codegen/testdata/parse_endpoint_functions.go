@@ -635,7 +635,6 @@ func BuildMethodMultiSimplePayloadPayload(serviceMultiSimple1MethodMultiSimplePa
 	v := &servicemultisimple1.MethodMultiSimplePayloadPayload{
 		A: body.A,
 	}
-
 	return v, nil
 }
 `

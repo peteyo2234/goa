@@ -221,25 +221,27 @@ const clientTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ClientArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
 {{- if .ClientCode }}
 	{{ .ClientCode }}
+{{- else if .ReturnIsStruct }}
+	v := &{{ .ReturnTypeName }}{}
+{{- end }}
+{{- if .ReturnTypeAttribute }}
+	res := &{{ .ReturnTypeName }}{
+		{{ .ReturnTypeAttribute }}: {{ if .ReturnIsPrimitivePointer }}&{{ end }}v,
+	}
+{{- end }}
+{{- if .ReturnIsStruct }}
 	{{- if .ReturnTypeAttribute }}
-		res := &{{ .ReturnTypeName }}{
-			{{ .ReturnTypeAttribute }}: {{ if .ReturnIsPrimitivePointer }}&{{ end }}v,
-		}
-	{{- end }}
-	{{- if .ReturnIsStruct }}
-		{{- if .ReturnTypeAttribute }}
-			{{ fieldCode .ClientArgs "res" .ReturnTypePkg }}
-		{{- else }}
-			{{ fieldCode .ClientArgs "v" .ReturnTypePkg }}
+		{{- $code := (fieldCode .ClientArgs "res" .ReturnTypePkg) }}
+		{{- if $code }}
+			{{ $code }}
+		{{- end }}
+	{{- else }}
+		{{- $code := (fieldCode .ClientArgs "v" .ReturnTypePkg) }}
+		{{- if $code }}
+			{{ $code }}
 		{{- end }}
 	{{- end }}
+{{- end }}
 	return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
-{{- else }}
-	{{- if .ReturnIsStruct }}
-		v := &{{ .ReturnTypeName }}{}
-		{{ fieldCode .ClientArgs "v" .ReturnTypePkg }}
-		return v
-	{{- end }}
-{{ end -}}
 }
 `

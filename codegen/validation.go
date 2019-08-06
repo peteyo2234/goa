@@ -344,9 +344,7 @@ func recurseAttribute(att *expr.AttributeExpr, attCtx *AttributeContext, nat *ex
 		if hasValidations {
 			var buf bytes.Buffer
 			tgt := fmt.Sprintf("%s.%s", target, attCtx.Scope.Field(nat.Attribute, nat.Name, true))
-			if expr.IsArray(nat.Attribute.Type) {
-				buf.Write(recurseValidationCode(nat.Attribute, attCtx, att.IsRequired(nat.Name), tgt, context, seen).Bytes())
-			} else if expr.IsPrimitive(nat.Attribute.Type) {
+			if expr.IsPrimitive(nat.Attribute.Type) {
 				buf.Write(recurseValidationCode(ut.Attribute(), attCtx, att.IsRequired(nat.Name), tgt, context, seen).Bytes())
 			} else {
 				if err := userValT.Execute(&buf, map[string]interface{}{"name": Goify(attCtx.Scope.Name(nat.Attribute, attCtx.Pkg), true), "target": tgt}); err != nil {
@@ -356,7 +354,7 @@ func recurseAttribute(att *expr.AttributeExpr, attCtx *AttributeContext, nat *ex
 			validation = buf.String()
 		}
 	} else {
-		validation = recurseValidationCode(
+		validation += recurseValidationCode(
 			nat.Attribute,
 			attCtx,
 			att.IsRequired(nat.Name),

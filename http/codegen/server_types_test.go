@@ -76,7 +76,6 @@ func NewMethodAAPayload(body *MethodARequestBody) *servicemixedpayloadinbody.APa
 	if body.DupObj != nil {
 		v.DupObj = unmarshalBPayloadRequestBodyToServicemixedpayloadinbodyBPayload(body.DupObj)
 	}
-
 	return v
 }
 
@@ -136,7 +135,6 @@ func NewMethodAAPayload(body *MethodARequestBody) *servicemultiplemethods.APaylo
 	v := &servicemultiplemethods.APayload{
 		A: body.A,
 	}
-
 	return v
 }
 
@@ -148,7 +146,6 @@ func NewMethodBPayloadType(body *MethodBRequestBody) *servicemultiplemethods.Pay
 		B: body.B,
 	}
 	v.C = unmarshalAPayloadRequestBodyToServicemultiplemethodsAPayload(body.C)
-
 	return v
 }
 

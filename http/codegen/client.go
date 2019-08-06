@@ -188,7 +188,7 @@ func clientEncodeDecode(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File 
 			Source: requestBuilderT,
 			Data:   e,
 		})
-		if e.Payload.Ref != "" {
+		if e.RequestEncoder != "" {
 			sections = append(sections, &codegen.SectionTemplate{
 				Name:   "request-encoder",
 				Source: requestEncoderT,
@@ -198,8 +198,9 @@ func clientEncodeDecode(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File 
 					"goTypeRef": func(dt expr.DataType) string {
 						return service.Services.Get(svc.Name()).Scope.GoTypeRef(&expr.AttributeExpr{Type: dt})
 					},
-					"isBearer": isBearer,
-					"isUserType": func(dt expr.DataType) bool {
+					"isBearer":    isBearer,
+					"aliasedType": fieldType,
+					"isAliased": func(dt expr.DataType) bool {
 						_, ok := dt.(expr.UserType)
 						return ok
 					},
@@ -241,15 +242,24 @@ func clientEncodeDecode(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File 
 // typeConversionData produces the template data suitable for executing the
 // "header_conversion" template.
 func typeConversionData(dt, ft expr.DataType, varName string, target string) map[string]interface{} {
+	ut, isut := ft.(expr.UserType)
+	if isut {
+		ft = ut.Attribute().Type
+	}
 	return map[string]interface{}{
 		"Type":      dt,
 		"FieldType": ft,
 		"VarName":   varName,
 		"Target":    target,
+		"IsAliased": isut,
 	}
 }
 
 func mapConversionData(dt, ft expr.DataType, varName, sourceVar, sourceField string, newVar bool) map[string]interface{} {
+	ut, isut := ft.(expr.UserType)
+	if isut {
+		ft = ut.Attribute().Type
+	}
 	return map[string]interface{}{
 		"Type":        dt,
 		"FieldType":   ft,
@@ -257,7 +267,16 @@ func mapConversionData(dt, ft expr.DataType, varName, sourceVar, sourceField str
 		"SourceVar":   sourceVar,
 		"SourceField": sourceField,
 		"NewVar":      newVar,
+		"IsAliased":   isut,
 	}
+}
+
+func fieldType(ft expr.DataType) expr.DataType {
+	ut, isut := ft.(expr.UserType)
+	if isut {
+		return ut.Attribute().Type
+	}
+	return ft
 }
 
 // isBearer returns true if the security scheme uses a Bearer scheme.
@@ -335,8 +354,12 @@ func New{{ .ClientStruct }}(
 const endpointInitT = `{{ printf "%s returns an endpoint that makes HTTP requests to the %s service %s server." .EndpointInit .ServiceName .Method.Name | comment }}
 func (c *{{ .ClientStruct }}) {{ .EndpointInit }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.VarName }} {{ .MultipartRequestEncoder.FuncName }}{{ end }}) goa.Endpoint {
 	var (
-		{{- if .Payload.Ref }}
+		{{- if and .ClientStream .RequestEncoder }}
 		encodeRequest  = {{ .RequestEncoder }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.InitName }}({{ .MultipartRequestEncoder.VarName }}){{ else }}c.encoder{{ end }})
+		{{- else }}
+			{{- if .RequestEncoder }}
+		encodeRequest  = {{ .RequestEncoder }}({{ if .MultipartRequestEncoder }}{{ .MultipartRequestEncoder.InitName }}({{ .MultipartRequestEncoder.VarName }}){{ else }}c.encoder{{ end }})
+			{{- end }}
 		{{- end }}
 		decodeResponse = {{ .ResponseDecoder }}(c.decoder, c.RestoreResponseBody)
 	)
@@ -345,7 +368,7 @@ func (c *{{ .ClientStruct }}) {{ .EndpointInit }}({{ if .MultipartRequestEncoder
 		if err != nil {
 			return nil, err
 		}
-	{{- if .Payload.Ref }}
+	{{- if .RequestEncoder }}
 		err = encodeRequest(req, v)
 		if err != nil {
 			return nil, err
@@ -438,14 +461,14 @@ func {{ .RequestEncoder }}(encoder func(*http.Request) goahttp.Encoder) func(*ht
 	{{- range .Payload.Request.QueryParams }}
 		{{- if .MapQueryParams }}
 		for key, value := range p{{ if .FieldName }}.{{ .FieldName }}{{ end }} {
-			{{ template "type_conversion" (typeConversionData .Type.KeyType.Type .FieldType.KeyType.Type "keyStr" "key") }}
+			{{ template "type_conversion" (typeConversionData .Type.KeyType.Type (aliasedType .FieldType).KeyType.Type "keyStr" "key") }}
 			{{- if eq .Type.ElemType.Type.Name "array" }}
 			for _, val := range value {
-				{{ template "type_conversion" (typeConversionData .Type.ElemType.Type.ElemType.Type .FieldType.ElemType.Type.ElemType.Type "valStr" "val") }}
+				{{ template "type_conversion" (typeConversionData .Type.ElemType.Type.ElemType.Type (aliasedType (aliasedType .FieldType).ElemType.Type).ElemType.Type "valStr" "val") }}
 				values.Add(keyStr, valStr)
 			}
 			{{- else }}
-			{{ template "type_conversion" (typeConversionData .Type.ElemType.Type .FieldType.ElemType.Type "valueStr" "value") }}
+			{{ template "type_conversion" (typeConversionData .Type.ElemType.Type (aliasedType .FieldType).ElemType.Type "valueStr" "value") }}
 			values.Add(keyStr, valueStr)
 			{{- end }}
     }
@@ -455,7 +478,7 @@ func {{ .RequestEncoder }}(encoder func(*http.Request) goahttp.Encoder) func(*ht
 			}
 		{{- else if .Slice }}
 			for _, value := range p{{ if .FieldName }}.{{ .FieldName }}{{ end }} {
-				{{ template "type_conversion" (typeConversionData .Type.ElemType.Type .FieldType.ElemType.Type "valueStr" "value") }}
+				{{ template "type_conversion" (typeConversionData .Type.ElemType.Type (aliasedType .FieldType).ElemType.Type "valueStr" "value") }}
 				values.Add("{{ .Name }}", valueStr)
 			}
 		{{- else if .Map }}
@@ -522,19 +545,19 @@ func {{ .RequestEncoder }}(encoder func(*http.Request) goahttp.Encoder) func(*ht
 {{- define "map_conversion" }}
   for k{{ if not (eq .Type.KeyType.Type.Name "string") }}Raw{{ end }}, value := range {{ .SourceVar }}{{ if .SourceField }}.{{ .SourceField }}{{ end }} {
 		{{- if not (eq .Type.KeyType.Type.Name "string") }}
-			{{- template "type_conversion" (typeConversionData .Type.KeyType.Type .FieldType.KeyType.Type "k" "kRaw") }}
+			{{ template "type_conversion" (typeConversionData .Type.KeyType.Type .FieldType.KeyType.Type "k" "kRaw") }}
 		{{- end }}
 		key {{ if .NewVar }}:={{ else }}={{ end }} fmt.Sprintf("{{ .VarName }}[%s]", {{ if not .NewVar }}key, {{ end }}k)
 		{{- if eq .Type.ElemType.Type.Name "string" }}
-			values.Add(key, {{ if isUserType .FieldType.ElemType.Type }}string({{ end }}value{{ if isUserType .FieldType.ElemType.Type }}){{ end }})
+			values.Add(key, {{ if (isAliased .FieldType.ElemType.Type) }}string({{ end }}value{{ if (isAliased .FieldType.ElemType.Type) }}){{ end }})
 		{{- else if eq .Type.ElemType.Type.Name "map" }}
 			{{- template "map_conversion" (mapConversionData .Type.ElemType.Type .FieldType.ElemType.Type "%s" "value" "" false) }}
 		{{- else if eq .Type.ElemType.Type.Name "array" }}
-			{{- if eq .Type.ElemType.Type.ElemType.Type.Name "string" }}
-				values[key] = {{ if isUserType .FieldType.ElemType.Type.ElemType.Type }}string({{ end }}value{{ if isUserType .FieldType.ElemType.Type.ElemType.Type }}}{{ end }}
+			{{- if and (eq .Type.ElemType.Type.ElemType.Type.Name "string") (not (isAliased .FieldType.ElemType.Type.ElemType.Type)) }}
+				values[key] = value
 			{{- else }}
 				for _, val := range value {
-					{{ template "type_conversion" (typeConversionData .Type.ElemType.Type.ElemType.Type .FieldType.ElemType.Type.ElemType.Type "valStr" "val") }}
+					{{ template "type_conversion" (typeConversionData .Type.ElemType.Type.ElemType.Type (aliasedType .FieldType.ElemType.Type).ElemType.Type "valStr" "val") }}
 					values.Add(key, valStr)
 				}
 			{{- end }}
@@ -547,25 +570,25 @@ func {{ .RequestEncoder }}(encoder func(*http.Request) goahttp.Encoder) func(*ht
 
 {{- define "type_conversion" }}
   {{- if eq .Type.Name "boolean" -}}
-    {{ .VarName }} := strconv.FormatBool({{ if isUserType .FieldType }}bool({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }})
+    {{ .VarName }} := strconv.FormatBool({{ if .IsAliased }}bool({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }})
   {{- else if eq .Type.Name "int" -}}
-    {{ .VarName }} := strconv.Itoa({{ if isUserType .FieldType }}int({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }})
+    {{ .VarName }} := strconv.Itoa({{ if .IsAliased }}int({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }})
   {{- else if eq .Type.Name "int32" -}}
     {{ .VarName }} := strconv.FormatInt(int64({{ .Target }}), 10)
   {{- else if eq .Type.Name "int64" -}}
-    {{ .VarName }} := strconv.FormatInt({{ if isUserType .FieldType }}int64({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }}, 10)
+    {{ .VarName }} := strconv.FormatInt({{ if .IsAliased }}int64({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }}, 10)
   {{- else if eq .Type.Name "uint" -}}
     {{ .VarName }} := strconv.FormatUint(uint64({{ .Target }}), 10)
   {{- else if eq .Type.Name "uint32" -}}
     {{ .VarName }} := strconv.FormatUint(uint64({{ .Target }}), 10)
   {{- else if eq .Type.Name "uint64" -}}
-    {{ .VarName }} := strconv.FormatUint({{ if isUserType .FieldType }}uint64({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }}, 10)
+    {{ .VarName }} := strconv.FormatUint({{ if .IsAliased }}uint64({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }}, 10)
   {{- else if eq .Type.Name "float32" -}}
     {{ .VarName }} := strconv.FormatFloat(float64({{ .Target }}), 'f', -1, 32)
   {{- else if eq .Type.Name "float64" -}}
-    {{ .VarName }} := strconv.FormatFloat({{ if isUserType .FieldType }}float64({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }}, 'f', -1, 64)
+    {{ .VarName }} := strconv.FormatFloat({{ if .IsAliased }}float64({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }}, 'f', -1, 64)
 	{{- else if eq .Type.Name "string" -}}
-    {{ .VarName }} := {{ if isUserType .FieldType }}string({{ end }}{{ .Target }}{{ if isUserType .FieldType }}){{ end }}
+    {{ .VarName }} := {{ if .IsAliased }}string({{ end }}{{ .Target }}{{ if .IsAliased }}){{ end }}
   {{- else if eq .Type.Name "bytes" -}}
     {{ .VarName }} := string({{ .Target }})
   {{- else if eq .Type.Name "any" -}}

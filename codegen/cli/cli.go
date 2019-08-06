@@ -749,15 +749,24 @@ func {{ .Name }}({{ range .FormalParams }}{{ . }} string, {{ end }}) ({{ .Result
 		{{- end }}
 		{{- if .ReturnIsStruct }}
 			{{- if .ReturnTypeAttribute }}
-				{{ fieldCode .Args "res" .ReturnTypePkg }}
+				{{- $code := (fieldCode .Args "res" .ReturnTypePkg) }}
+				{{- if $code }}
+					{{ $code }}
+				{{- end }}
 			{{- else }}
-				{{ fieldCode .Args "v" .ReturnTypePkg }}
+				{{- $code := (fieldCode .Args "v" .ReturnTypePkg) }}
+				{{- if $code }}
+					{{ $code }}
+				{{- end }}
 			{{- end }}
 		{{- end }}
 		return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}, nil
 	{{- else }}
 		payload := &{{ .ReturnTypeName }}{}
-		{{ fieldCode .Args "payload" .ReturnTypePkg }}
+		{{- $code := (fieldCode .Args "payload" .ReturnTypePkg) }}
+		{{- if $code }}
+			{{ $code }}
+		{{- end }}
 		return payload, nil
 	{{- end }}
 {{- end }}

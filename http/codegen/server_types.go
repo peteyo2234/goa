@@ -265,26 +265,28 @@ const serverTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ServerArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
 {{- if .ServerCode }}
 	{{ .ServerCode }}
+{{- else if .ReturnIsStruct }}
+	v := &{{ .ReturnTypeName }}{}
+{{- end }}
+{{- if .ReturnTypeAttribute }}
+	res := &{{ .ReturnTypeName }}{
+		{{ .ReturnTypeAttribute }}: v,
+	}
+{{- end }}
+{{- if .ReturnIsStruct }}
 	{{- if .ReturnTypeAttribute }}
-		res := &{{ .ReturnTypeName }}{
-			{{ .ReturnTypeAttribute }}: v,
-		}
-	{{- end }}
-	{{- if .ReturnIsStruct }}
-		{{- if .ReturnTypeAttribute }}
-			{{ fieldCode .ServerArgs "res" .ReturnTypePkg }}
-		{{- else }}
-			{{ fieldCode .ServerArgs "v" .ReturnTypePkg }}
+		{{- $code := (fieldCode .ServerArgs "res" .ReturnTypePkg) }}
+		{{- if $code }}
+			{{ $code }}
+		{{- end }}
+	{{- else }}
+		{{- $code := (fieldCode .ServerArgs "v" .ReturnTypePkg) }}
+		{{- if $code }}
+			{{ $code }}
 		{{- end }}
 	{{- end }}
+{{- end }}
 	return {{ if .ReturnTypeAttribute }}res{{ else }}v{{ end }}
-{{- else }}
-	{{- if .ReturnIsStruct }}
-		v := &{{ .ReturnTypeName }}{}
-		{{ fieldCode .ServerArgs "v" .ReturnTypePkg }}
-		return v
-	{{- end }}
-{{ end -}}
 }
 `
 

@@ -829,7 +829,6 @@ func NewMethodBodyUserInnerPayloadType(body *MethodBodyUserInnerRequestBody) *se
 	if body.Inner != nil {
 		v.Inner = unmarshalInnerTypeRequestBodyToServicebodyuserinnerInnerType(body.Inner)
 	}
-
 	return v
 }
 `
@@ -842,7 +841,6 @@ func NewMethodBodyUserInnerDefaultPayloadType(body *MethodBodyUserInnerDefaultRe
 	if body.Inner != nil {
 		v.Inner = unmarshalInnerTypeRequestBodyToServicebodyuserinnerdefaultInnerType(body.Inner)
 	}
-
 	return v
 }
 `
