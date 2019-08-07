@@ -165,18 +165,17 @@ func clientType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 		})
 	}
 
-	fm := map[string]interface{}{
-		"fieldCode": fieldCode,
-	}
 	for _, adata := range data.Endpoints {
 		// response to method result (client)
 		for _, resp := range adata.Result.Responses {
 			if init := resp.ResultInit; init != nil {
 				sections = append(sections, &codegen.SectionTemplate{
-					Name:    "client-result-init",
-					Source:  clientTypeInitT,
-					Data:    init,
-					FuncMap: fm,
+					Name:   "client-result-init",
+					Source: clientTypeInitT,
+					Data:   init,
+					FuncMap: map[string]interface{}{
+						"fieldCode": fieldCode,
+					},
 				})
 			}
 		}
@@ -186,10 +185,12 @@ func clientType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 			for _, herr := range gerr.Errors {
 				if init := herr.Response.ResultInit; init != nil {
 					sections = append(sections, &codegen.SectionTemplate{
-						Name:    "client-error-result-init",
-						Source:  clientTypeInitT,
-						Data:    init,
-						FuncMap: fm,
+						Name:   "client-error-result-init",
+						Source: clientTypeInitT,
+						Data:   init,
+						FuncMap: map[string]interface{}{
+							"fieldCode": fieldCode,
+						},
 					})
 				}
 			}
@@ -221,22 +222,20 @@ const clientTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ClientArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
 {{- if .ClientCode }}
 	{{ .ClientCode }}
-{{- else if .ReturnIsStruct }}
-	v := &{{ .ReturnTypeName }}{}
-{{- end }}
-{{- if .ReturnTypeAttribute }}
-	res := &{{ .ReturnTypeName }}{
-		{{ .ReturnTypeAttribute }}: {{ if .ReturnIsPrimitivePointer }}&{{ end }}v,
-	}
+	{{- if .ReturnTypeAttribute }}
+		res := &{{ .ReturnTypeName }}{
+			{{ .ReturnTypeAttribute }}: {{ if .ReturnIsPrimitivePointer }}&{{ end }}v,
+		}
+	{{- end }}
 {{- end }}
 {{- if .ReturnIsStruct }}
 	{{- if .ReturnTypeAttribute }}
-		{{- $code := (fieldCode .ClientArgs "res" .ReturnTypePkg) }}
+		{{- $code := (fieldCode .ClientArgs .ClientCode "res" .ReturnTypeName .ReturnTypePkg) }}
 		{{- if $code }}
 			{{ $code }}
 		{{- end }}
 	{{- else }}
-		{{- $code := (fieldCode .ClientArgs "v" .ReturnTypePkg) }}
+		{{- $code := (fieldCode .ClientArgs .ClientCode "v" .ReturnTypeName .ReturnTypePkg) }}
 		{{- if $code }}
 			{{ $code }}
 		{{- end }}

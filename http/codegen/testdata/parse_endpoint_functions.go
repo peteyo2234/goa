@@ -692,9 +692,10 @@ func BuildMethodQueryBoolPayload(serviceQueryBoolMethodQueryBoolQ string) (*serv
 			}
 		}
 	}
-	payload := &servicequerybool.MethodQueryBoolPayload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequerybool.MethodQueryBoolPayload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -958,10 +959,7 @@ func BuildMethodBodyInlineMapUserPayload(serviceBodyInlineMapUserMethodBodyInlin
 	}
 	v := make(map[*servicebodyinlinemapuser.KeyType]*servicebodyinlinemapuser.ElemType, len(body))
 	for key, val := range body {
-		tk := &servicebodyinlinemapuser.KeyType{
-			A: key.A,
-			B: key.B,
-		}
+		tk := marshalKeyTypeRequestBodyToServicebodyinlinemapuserKeyType(val)
 		v[tk] = marshalElemTypeRequestBodyToServicebodyinlinemapuserElemType(val)
 	}
 	return v, nil
@@ -1121,9 +1119,10 @@ func BuildMethodQueryUInt32Payload(serviceQueryUInt32MethodQueryUInt32Q string) 
 			}
 		}
 	}
-	payload := &servicequeryuint32.MethodQueryUInt32Payload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequeryuint32.MethodQueryUInt32Payload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -1143,9 +1142,10 @@ func BuildMethodQueryUIntPayload(serviceQueryUIntMethodQueryUIntQ string) (*serv
 			}
 		}
 	}
-	payload := &servicequeryuint.MethodQueryUIntPayload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequeryuint.MethodQueryUIntPayload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -1158,9 +1158,10 @@ func BuildMethodQueryStringPayload(serviceQueryStringMethodQueryStringQ string) 
 			q = &serviceQueryStringMethodQueryStringQ
 		}
 	}
-	payload := &servicequerystring.MethodQueryStringPayload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequerystring.MethodQueryStringPayload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -1171,9 +1172,10 @@ func BuildMethodQueryStringValidatePayload(serviceQueryStringValidateMethodQuery
 	{
 		q = serviceQueryStringValidateMethodQueryStringValidateQ
 	}
-	payload := &servicequerystringvalidate.MethodQueryStringValidatePayload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequerystringvalidate.MethodQueryStringValidatePayload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -1186,9 +1188,10 @@ func BuildMethodQueryStringDefaultPayload(serviceQueryStringDefaultMethodQuerySt
 			q = serviceQueryStringDefaultMethodQueryStringDefaultQ
 		}
 	}
-	payload := &servicequerystringdefault.MethodQueryStringDefaultPayload{}
-	payload.Q = q
-	return payload, nil
+	v := &servicequerystringdefault.MethodQueryStringDefaultPayload{
+		Q: q,
+	}
+	return v, nil
 }
 `
 
@@ -1206,9 +1209,10 @@ func BuildMethodBodyPrimitiveArrayUserPayload(serviceBodyPrimitiveArrayUserMetho
 			}
 		}
 	}
-	payload := &servicebodyprimitivearrayuser.PayloadType{}
-	payload.A = a
-	return payload, nil
+	v := &servicebodyprimitivearrayuser.PayloadType{
+		A: a,
+	}
+	return v, nil
 }
 `
 

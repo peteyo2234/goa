@@ -171,26 +171,27 @@ func serverType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 		})
 	}
 
-	fm := map[string]interface{}{
-		"fieldCode": fieldCode,
-	}
 	for _, adata := range data.Endpoints {
 		// request to method payload
 		if init := adata.Payload.Request.PayloadInit; init != nil {
 			sections = append(sections, &codegen.SectionTemplate{
-				Name:    "server-payload-init",
-				Source:  serverTypeInitT,
-				Data:    init,
-				FuncMap: fm,
+				Name:   "server-payload-init",
+				Source: serverTypeInitT,
+				Data:   init,
+				FuncMap: map[string]interface{}{
+					"fieldCode": fieldCode,
+				},
 			})
 		}
 		if adata.ServerStream != nil && adata.ServerStream.Payload != nil {
 			if init := adata.ServerStream.Payload.Init; init != nil {
 				sections = append(sections, &codegen.SectionTemplate{
-					Name:    "server-payload-init",
-					Source:  serverTypeInitT,
-					Data:    init,
-					FuncMap: fm,
+					Name:   "server-payload-init",
+					Source: serverTypeInitT,
+					Data:   init,
+					FuncMap: map[string]interface{}{
+						"fieldCode": fieldCode,
+					},
 				})
 			}
 		}
@@ -208,51 +209,75 @@ func serverType(genpkg string, svc *expr.HTTPServiceExpr, seen map[string]struct
 	return &codegen.File{Path: path, SectionTemplates: sections}
 }
 
-// fieldCode generates code to initialize the data structures fields
-// from the given args. It is used only in templates.
-func fieldCode(args []*InitArgData, tgtVar, tgtPkg string) string {
-	var code string
-	scope := codegen.NewNameScope()
-	for _, arg := range args {
-		if arg.FieldName == "" {
-			continue
+// fieldCode initializes the target type fields with the given args.
+func fieldCode(args []*InitArgData, code, targetVar, targetName, targetPkg string) string {
+	var init, post string
+	{
+		scope := codegen.NewNameScope()
+		scope.Unique(targetVar)
+
+		if code == "" {
+			init = fmt.Sprintf("%s := &%s{\n", targetVar, targetName)
 		}
-		_, isut := arg.FieldType.(expr.UserType)
-		switch {
-		case expr.Equal(arg.Type, arg.FieldType):
-			// no need to call transform for same type
-			deref := ""
-			if !arg.Pointer && arg.FieldPointer && expr.IsPrimitive(arg.FieldType) {
-				deref = "&"
+		for _, arg := range args {
+			if arg.FieldName == "" {
+				continue
 			}
-			code += fmt.Sprintf("%s.%s = %s%s\n", tgtVar, arg.FieldName, deref, arg.Name)
-		case expr.IsPrimitive(arg.FieldType) && isut:
-			t := scope.GoFullTypeRef(&expr.AttributeExpr{Type: arg.FieldType}, tgtPkg)
-			cast := fmt.Sprintf("%s(%s)", t, arg.Name)
-			if arg.Pointer {
-				cast = fmt.Sprintf("%s(*%s)", t, arg.Name)
-			}
-			if arg.FieldPointer {
-				code += fmt.Sprintf("tmp%s := %s\n%s.%s = &tmp%s\n", arg.Name, cast, tgtVar, arg.FieldName, arg.Name)
+			if expr.Equal(arg.Type, arg.FieldType) {
+				// arg type and the data structure field type are the same
+				deref := ""
+				if !arg.Pointer && arg.FieldPointer && expr.IsPrimitive(arg.FieldType) {
+					deref = "&"
+				}
+				if code != "" {
+					post += fmt.Sprintf("%s.%s = %s%s\n", targetVar, arg.FieldName, deref, arg.Name)
+					continue
+				}
+				init += fmt.Sprintf("%s: %s%s,\n", arg.FieldName, deref, arg.Name)
+			} else if _, isut := arg.FieldType.(expr.UserType); isut && expr.IsPrimitive(arg.FieldType) {
+				// aliased primitive type
+				t := scope.GoFullTypeRef(&expr.AttributeExpr{Type: arg.FieldType}, targetPkg)
+				cast := fmt.Sprintf("%s(%s)", t, arg.Name)
+				if arg.Pointer {
+					cast = fmt.Sprintf("%s(*%s)", t, arg.Name)
+				}
+				if arg.FieldPointer {
+					post += fmt.Sprintf("tmp%s := %s\n%s.%s = &tmp%s\n", arg.Name, cast, targetVar, arg.FieldName, arg.Name)
+					continue
+				}
+				if code != "" {
+					post += fmt.Sprintf("%s.%s = %s\n", targetVar, arg.FieldName, cast)
+					continue
+				}
+				init += fmt.Sprintf("%s: %s,\n", arg.FieldName, cast)
 			} else {
-				code += fmt.Sprintf("%s.%s = %s\n", tgtVar, arg.FieldName, cast)
+				// aliased non-primitive type (array or map). We can assume that the
+				// array and map elements never contains another user type because
+				// goa does not allow user types to be sent over params and headers
+				srcctx := codegen.NewAttributeContext(arg.Pointer, false, true, "", scope)
+				tgtctx := codegen.NewAttributeContext(arg.FieldPointer, false, true, targetPkg, scope)
+				c, h, err := codegen.GoTransformToVar(
+					&expr.AttributeExpr{Type: arg.Type}, &expr.AttributeExpr{Type: arg.FieldType},
+					arg.Name, fmt.Sprintf("%s.%s", targetVar, arg.FieldName), srcctx, tgtctx, "", false)
+				if err != nil {
+					panic(err) // bug
+				}
+				if len(h) > 0 {
+					// bug. A user type is used in params/headers which is not allowed.
+					// Fix validation to catch these.
+					panic("expected 0 transform helpers but got at least 1")
+				}
+				post += c + "\n"
 			}
-		default:
-			srcctx := codegen.NewAttributeContext(arg.Pointer, false, true, "", scope)
-			tgtctx := codegen.NewAttributeContext(arg.FieldPointer, false, true, tgtPkg, scope)
-			c, h, err := codegen.GoTransformToVar(
-				&expr.AttributeExpr{Type: arg.Type}, &expr.AttributeExpr{Type: arg.FieldType},
-				arg.Name, fmt.Sprintf("%s.%s", tgtVar, arg.FieldName), srcctx, tgtctx, "", false)
-			if err != nil {
-				panic(err) // bug
-			}
-			if len(h) > 0 {
-				panic("expected 0 transform helpers but got at least 1") // bug
-			}
-			code += c + "\n"
+		}
+		if init != "" {
+			init += "}\n"
 		}
 	}
-	return strings.Trim(code, "\n")
+	if code != "" {
+		return strings.Trim(post, "\n")
+	}
+	return strings.Trim(init+post, "\n")
 }
 
 // input: TypeData
@@ -265,22 +290,20 @@ const serverTypeInitT = `{{ comment .Description }}
 func {{ .Name }}({{- range .ServerArgs }}{{ .Name }} {{ .TypeRef }}, {{ end }}) {{ .ReturnTypeRef }} {
 {{- if .ServerCode }}
 	{{ .ServerCode }}
-{{- else if .ReturnIsStruct }}
-	v := &{{ .ReturnTypeName }}{}
-{{- end }}
-{{- if .ReturnTypeAttribute }}
-	res := &{{ .ReturnTypeName }}{
-		{{ .ReturnTypeAttribute }}: v,
-	}
+	{{- if .ReturnTypeAttribute }}
+		res := &{{ .ReturnTypeName }}{
+			{{ .ReturnTypeAttribute }}: v,
+		}
+	{{- end }}
 {{- end }}
 {{- if .ReturnIsStruct }}
 	{{- if .ReturnTypeAttribute }}
-		{{- $code := (fieldCode .ServerArgs "res" .ReturnTypePkg) }}
+		{{- $code := (fieldCode .ServerArgs .ServerCode "res" .ReturnTypeName .ReturnTypePkg) }}
 		{{- if $code }}
 			{{ $code }}
 		{{- end }}
 	{{- else }}
-		{{- $code := (fieldCode .ServerArgs "v" .ReturnTypePkg) }}
+		{{- $code := (fieldCode .ServerArgs .ServerCode "v" .ReturnTypeName .ReturnTypePkg) }}
 		{{- if $code }}
 			{{ $code }}
 		{{- end }}

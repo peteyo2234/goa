@@ -303,7 +303,8 @@ func transformMap(source, target *expr.Map, sourceVar, targetVar string, newVar 
 		"NewVar":         newVar,
 		"TransformAttrs": ta,
 		"LoopVar":        "",
-		"IsStruct":       expr.IsObject(target.ElemType.Type),
+		"IsKeyStruct":    expr.IsObject(target.KeyType.Type),
+		"IsElemStruct":   expr.IsObject(target.ElemType.Type),
 	}
 	if depth := MapDepth(target); depth > 0 {
 		data["LoopVar"] = string(97 + depth)
@@ -474,8 +475,12 @@ for {{ .LoopVar }}, val := range {{ .SourceVar }} {
 
 	transformGoMapTmpl = `{{ .TargetVar }} {{ if .NewVar }}:={{ else }}={{ end }} make(map[{{ .KeyTypeRef }}]{{ .ElemTypeRef }}, len({{ .SourceVar }}))
 for key, val := range {{ .SourceVar }} {
+{{ if .IsKeyStruct -}}
+	tk := {{ transformHelperName .SourceKey .TargetKey .TransformAttrs -}}(val)
+{{ else -}}
   {{ transformAttribute .SourceKey .TargetKey "key" "tk" true .TransformAttrs -}}
-{{ if .IsStruct -}}
+{{ end -}}
+{{ if .IsElemStruct -}}
 	{{ .TargetVar }}[tk] = {{ transformHelperName .SourceElem .TargetElem .TransformAttrs -}}(val)
 {{ else -}}
 	{{ transformAttribute .SourceElem .TargetElem "val" (printf "tv%s" .LoopVar) true .TransformAttrs -}}

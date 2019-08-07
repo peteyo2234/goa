@@ -38,11 +38,6 @@ func (p *protoBufScope) Scope() *codegen.NameScope {
 	return p.scope
 }
 
-// Scope returns the name scope.
-func (p *protoBufScope) Type(att *expr.AttributeExpr) expr.DataType {
-	return att.Type
-}
-
 // protoBufTypeContext returns a contextual attribute for the protocol buffer type.
 func protoBufTypeContext(pkg string, scope *codegen.NameScope) *codegen.AttributeContext {
 	ctx := codegen.NewAttributeContext(false, true, true, pkg, scope)
