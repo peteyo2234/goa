@@ -686,7 +686,7 @@ func (d ServicesData) analyze(hs *expr.HTTPServiceExpr) *ServiceData {
 					name := fmt.Sprintf("%s%sPath%s", ep.VarName, svc.StructName, suffix)
 					for j, arg := range params {
 						att := pathParamsObj.Attribute(arg)
-						pointer := a.Params.IsPrimitivePointer(arg, false)
+						pointer := a.Params.IsPrimitivePointer(arg, true)
 						name := rd.Scope.Name(codegen.Goify(arg, false))
 						var vcode string
 						if att.Validation != nil {
@@ -2484,7 +2484,11 @@ func attributeTypeData(ut expr.UserType, req, ptr, server bool, rd *ServiceData)
 			ctx = "response"
 		}
 		desc = name + " is used to define fields on " + ctx + " body types."
-		validate = codegen.RecursiveValidationCode(ut.Attribute(), hctx, true, "body")
+		if req || !req && !server {
+			// generate validations for responses client-side and for
+			// requests server-side and CLI
+			validate = codegen.RecursiveValidationCode(ut.Attribute(), hctx, true, "body")
+		}
 		if validate != "" {
 			validateRef = fmt.Sprintf("err = Validate%s(v)", name)
 		}
@@ -2515,11 +2519,7 @@ func attributeTypeData(ut expr.UserType, req, ptr, server bool, rd *ServiceData)
 //
 func httpContext(pkg string, scope *codegen.NameScope, request, svr bool) *codegen.AttributeContext {
 	marshal := !request && svr || request && !svr
-	ptr := false
-	if !marshal {
-		ptr = true
-	}
-	return codegen.NewAttributeContext(ptr, false, marshal, pkg, scope)
+	return codegen.NewAttributeContext(!marshal, false, marshal, pkg, scope)
 }
 
 // serviceContext returns an attribute context for service types.

@@ -20,6 +20,7 @@ func TestGoTransformHelpers(t *testing.T) {
 		simpleAlias   = root.UserType("SimpleAlias")
 		mapAlias      = root.UserType("NestedMapAlias")
 		arrayMapAlias = root.UserType("ArrayMapAlias")
+		collection    = root.UserType("ResultTypeCollection")
 		// attribute contexts used in test cases
 		defaultCtx = NewAttributeContext(false, false, true, "", scope)
 	)
@@ -36,6 +37,7 @@ func TestGoTransformHelpers(t *testing.T) {
 		{"simple-alias", simpleAlias, []string{}},
 		{"nested-map-alias", mapAlias, []string{}},
 		{"array-map-alias", arrayMapAlias, []string{}},
+		{"result-type-collection", collection, []string{"transformResultTypeToResultType"}},
 	}
 	for _, c := range tc {
 		t.Run(c.Name, func(t *testing.T) {

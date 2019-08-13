@@ -334,12 +334,12 @@ func transformAttributeHelpers(source, target *expr.AttributeExpr, ta *Transform
 	var other []*TransformFunctionData
 	switch {
 	case expr.IsArray(source.Type):
-		if other, err = transformAttributeHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, ta, seen); err == nil {
+		if other, err = collectHelpers(expr.AsArray(source.Type).ElemType, expr.AsArray(target.Type).ElemType, true, ta, seen); err == nil {
 			helpers = append(helpers, other...)
 		}
 	case expr.IsMap(source.Type):
 		sm, tm := expr.AsMap(source.Type), expr.AsMap(target.Type)
-		if other, err = transformAttributeHelpers(sm.ElemType, tm.ElemType, ta, seen); err == nil {
+		if other, err = collectHelpers(sm.ElemType, tm.ElemType, true, ta, seen); err == nil {
 			helpers = append(helpers, other...)
 			if other, err = collectHelpers(sm.KeyType, tm.KeyType, true, ta, seen); err == nil {
 				helpers = append(helpers, other...)
